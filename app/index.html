@@ -6,26 +6,27 @@
 <title>MSET input &amp; anomalies (3D) + SPRT fault detection</title>
 <style>
   body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
-       margin:18px;color:#222;background:#fff;}
-  h1{font-size:16px;font-weight:600;margin:0 0 4px 0;}
-  .legend{font-size:12px;color:#555;margin-bottom:10px;}
-  .hint{font-size:11px;color:#888;margin-top:4px;}
+       margin:18px;color:#c9d1d9;background:#0d1117;}
+  h1{font-size:16px;font-weight:600;margin:0 0 4px 0;color:#58a6ff;}
+  .legend{font-size:12px;color:#8b949e;margin-bottom:10px;}
+  .hint{font-size:11px;color:#6e7681;margin-top:4px;}
   .container{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;}
   .left{flex:0 0 auto;}
   .right{flex:0 0 260px;display:flex;flex-direction:column;gap:12px;}
-  canvas{border:1px solid #ddd;border-radius:6px;background:#fff;
+  canvas{border:1px solid #30363d;border-radius:6px;background:#0d1117;
          display:block;cursor:grab;}
   canvas:active{cursor:grabbing;}
   #chartSprt{cursor:pointer;margin-top:12px;}
-  .box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;font-size:13px;}
-  .box-title{font-weight:600;font-size:12px;color:#444;margin-bottom:6px;
+  .box{border:1px solid #30363d;border-radius:6px;padding:10px 12px;font-size:13px;
+       background:#161b22;}
+  .box-title{font-weight:600;font-size:12px;color:#8b949e;margin-bottom:6px;
              text-transform:uppercase;letter-spacing:.02em;}
-  .box label{display:block;padding:2px 0;cursor:pointer;font-size:13px;}
+  .box label{display:block;padding:2px 0;cursor:pointer;font-size:13px;color:#c9d1d9;}
   #infoPanel{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
-             white-space:pre-wrap;background:#f7f7f7;border:1px solid #ccc;
-             border-radius:6px;padding:10px;min-height:230px;line-height:1.45;}
-  #sprtTitle{font-size:13px;font-weight:600;margin:14px 0 4px 2px;}
-  input[type=range]{width:100%;}
+             white-space:pre-wrap;background:#0d1117;border:1px solid #30363d;
+             color:#c9d1d9;border-radius:6px;padding:10px;min-height:230px;line-height:1.45;}
+  #sprtTitle{font-size:13px;font-weight:600;margin:14px 0 4px 2px;color:#58a6ff;}
+  input[type=range]{width:100%;accent-color:#58a6ff;}
   .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;
           margin-right:5px;vertical-align:middle;}
 </style>
@@ -33,11 +34,11 @@
 <body>
 <h1>Input states, MSET estimates and detected anomalies</h1>
 <div class="legend">
-  <span class="swatch" style="background:#9ecae1"></span>healthy training data &nbsp;
-  <span class="swatch" style="background:#31688e"></span>input (colour = ||residual||) &nbsp;
-  <span class="swatch" style="background:#7f7f7f"></span>MSET estimate (triangle) &nbsp;
-  <span class="swatch" style="background:#d62728"></span>anomaly (SPRT fault, X) &nbsp;
-  <span class="swatch" style="background:#ff7f0e"></span>current time (ring)
+  <span class="swatch" style="background:#388bfd"></span>healthy training data &nbsp;
+  <span class="swatch" style="background:#3fb950"></span>input (colour = ||residual||) &nbsp;
+  <span class="swatch" style="background:#c9d1d9"></span>MSET estimate (triangle) &nbsp;
+  <span class="swatch" style="background:#da3633"></span>anomaly (SPRT fault, X) &nbsp;
+  <span class="swatch" style="background:#f0883e"></span>current time (ring)
 </div>
 <div class="container">
   <div class="left">
@@ -46,7 +47,7 @@
     <div id="sprtTitle"></div>
     <canvas id="chartSprt" width="900" height="220"></canvas>
     <div style="margin-top:10px;">
-      <label for="timeSlider" style="font-size:12px;color:#444;">time index</label>
+      <label for="timeSlider" style="font-size:12px;color:#8b949e;">time index</label>
       <input type="range" id="timeSlider" min="0" max="1" step="1" value="0">
     </div>
   </div>
@@ -173,21 +174,93 @@ const DATA = {
     return `rgb(${r},${g},${bl})`;
   }
 
+  function niceStep(range, maxTicks) {
+    const rough = range / maxTicks;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough || 1)));
+    const res = rough / mag;
+    let nice; if (res <= 1.5) nice = 1; else if (res <= 3) nice = 2; else if (res <= 7) nice = 5; else nice = 10;
+    return nice * mag;
+  }
+
+  const NGRID = 6;
+  function drawGrid() {
+    ctx3d.lineWidth = 1;
+    /* Floor grid: XZ plane at y = lo[1] */
+    ctx3d.strokeStyle = 'rgba(88,166,255,0.12)';
+    for (let i = 0; i <= NGRID; ++i) {
+      const fx = lo[0] + (hi[0]-lo[0]) * i/NGRID;
+      let a = project(norm3(fx, lo[1], lo[2])), b = project(norm3(fx, lo[1], hi[2]));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+      const fz = lo[2] + (hi[2]-lo[2]) * i/NGRID;
+      a = project(norm3(lo[0], lo[1], fz)); b = project(norm3(hi[0], lo[1], fz));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+    }
+    /* Back-wall grids: XY at z=lo[2], YZ at x=lo[0] */
+    ctx3d.strokeStyle = 'rgba(88,166,255,0.07)';
+    for (let i = 0; i <= NGRID; ++i) {
+      const fx = lo[0] + (hi[0]-lo[0]) * i/NGRID;
+      let a = project(norm3(fx, lo[1], lo[2])), b = project(norm3(fx, hi[1], lo[2]));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+      const fy = lo[1] + (hi[1]-lo[1]) * i/NGRID;
+      a = project(norm3(lo[0], fy, lo[2])); b = project(norm3(hi[0], fy, lo[2]));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+      a = project(norm3(lo[0], fy, lo[2])); b = project(norm3(lo[0], fy, hi[2]));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+      const fz2 = lo[2] + (hi[2]-lo[2]) * i/NGRID;
+      a = project(norm3(lo[0], lo[1], fz2)); b = project(norm3(lo[0], hi[1], fz2));
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+    }
+  }
+
   function drawAxes() {
     const O = project(norm3(lo[0], lo[1], lo[2]));
     const X = project(norm3(hi[0], lo[1], lo[2]));
     const Y = project(norm3(lo[0], hi[1], lo[2]));
     const Z = project(norm3(lo[0], lo[1], hi[2]));
-    ctx3d.strokeStyle = '#aaa'; ctx3d.lineWidth = 1;
-    ctx3d.font = '11px sans-serif'; ctx3d.fillStyle = '#444';
+    ctx3d.strokeStyle = 'rgba(201,209,217,0.6)'; ctx3d.lineWidth = 1.3;
+    ctx3d.font = '11px sans-serif'; ctx3d.fillStyle = '#8b949e';
     [[O,X,DATA.paramNames[0]],[O,Y,DATA.paramNames[1]],[O,Z,DATA.paramNames[2]]].forEach(([a,b,label]) => {
       ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
       ctx3d.fillText(label, b.x+4, b.y+4);
     });
+
+    /* Tick marks + numeric labels along each axis */
+    ctx3d.font = '9px sans-serif'; ctx3d.fillStyle = '#6e7681';
+    ctx3d.strokeStyle = 'rgba(201,209,217,0.4)';
+    const rx = (hi[0]-lo[0]) || 1, ry = (hi[1]-lo[1]) || 1, rz = (hi[2]-lo[2]) || 1;
+    const tickFrac = 0.035;
+    {
+      const step = niceStep(rx, 5);
+      for (let v = Math.ceil(lo[0]/step)*step; v <= hi[0]+step*0.001; v += step) {
+        const p = project(norm3(v, lo[1], lo[2]));
+        const q = project(norm3(v, lo[1]-ry*tickFrac, lo[2]));
+        ctx3d.beginPath(); ctx3d.moveTo(p.x,p.y); ctx3d.lineTo(q.x,q.y); ctx3d.stroke();
+        ctx3d.fillText(v.toFixed(0), q.x, q.y+10);
+      }
+    }
+    {
+      const step = niceStep(ry, 5);
+      for (let v = Math.ceil(lo[1]/step)*step; v <= hi[1]+step*0.001; v += step) {
+        const p = project(norm3(lo[0], v, lo[2]));
+        const q = project(norm3(lo[0]-rx*tickFrac, v, lo[2]));
+        ctx3d.beginPath(); ctx3d.moveTo(p.x,p.y); ctx3d.lineTo(q.x,q.y); ctx3d.stroke();
+        ctx3d.fillText(v.toFixed(0), q.x-8, q.y+3);
+      }
+    }
+    {
+      const step = niceStep(rz, 5);
+      for (let v = Math.ceil(lo[2]/step)*step; v <= hi[2]+step*0.001; v += step) {
+        const p = project(norm3(lo[0], lo[1], v));
+        const q = project(norm3(lo[0], lo[1]-ry*tickFrac, v));
+        ctx3d.beginPath(); ctx3d.moveTo(p.x,p.y); ctx3d.lineTo(q.x,q.y); ctx3d.stroke();
+        ctx3d.fillText(v.toFixed(2), q.x, q.y+10);
+      }
+    }
   }
 
   function redraw3D() {
     ctx3d.clearRect(0, 0, c3d.width, c3d.height);
+    drawGrid();
     drawAxes();
 
     const items = [];
@@ -195,12 +268,12 @@ const DATA = {
     if (state.layers.training) {
       for (let i = 0; i < DATA.trainX.length; ++i) {
         const P = project(norm3(DATA.trainX[i], DATA.trainY[i], DATA.trainZ[i]));
-        items.push({type:'dot', p:P, r:2.4, color:'rgba(158,202,225,0.55)', depth:P.depth});
+        items.push({type:'dot', p:P, r:2.4, color:'rgba(56,139,253,0.5)', depth:P.depth});
       }
     }
 
     if (state.layers.trajectory) {
-      ctx3d.strokeStyle = 'rgba(120,120,120,0.55)'; ctx3d.lineWidth = 1;
+      ctx3d.strokeStyle = 'rgba(139,148,158,0.5)'; ctx3d.lineWidth = 1;
       ctx3d.beginPath();
       for (let i = 0; i < DATA.k; ++i) {
         const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
@@ -213,14 +286,14 @@ const DATA = {
       for (let i = 0; i < DATA.k; ++i) {
         const A = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
         const B = project(norm3(DATA.estX[i], DATA.estY[i], DATA.estZ[i]));
-        items.push({type:'line', a:A, b:B, color:'rgba(127,127,127,0.55)', depth:(A.depth+B.depth)/2});
+        items.push({type:'line', a:A, b:B, color:'rgba(139,148,158,0.45)', depth:(A.depth+B.depth)/2});
       }
     }
 
     if (state.layers.estimates) {
       for (let i = 0; i < DATA.k; ++i) {
         const P = project(norm3(DATA.estX[i], DATA.estY[i], DATA.estZ[i]));
-        items.push({type:'tri', p:P, color:'#7f7f7f', depth:P.depth});
+        items.push({type:'tri', p:P, color:'#c9d1d9', depth:P.depth});
       }
     }
 
@@ -235,7 +308,7 @@ const DATA = {
       for (let i = 0; i < DATA.k; ++i) {
         if (!DATA.anomalyMask[i]) continue;
         const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
-        items.push({type:'x', p:P, color:'#d62728', depth:P.depth});
+        items.push({type:'x', p:P, color:'#da3633', depth:P.depth});
       }
     }
 
@@ -263,7 +336,7 @@ const DATA = {
     const ci = state.cursor;
     const CP = project(norm3(DATA.objX[ci], DATA.objY[ci], DATA.objZ[ci]));
     ctx3d.beginPath(); ctx3d.arc(CP.x, CP.y, 11, 0, 2*Math.PI);
-    ctx3d.strokeStyle = '#ff7f0e'; ctx3d.lineWidth = 2.5; ctx3d.stroke();
+    ctx3d.strokeStyle = '#f0883e'; ctx3d.lineWidth = 2.5; ctx3d.stroke();
 
     updateInfo();
   }
@@ -328,7 +401,7 @@ const DATA = {
     const Y = v => H - PAD_B - (v - vmin) / ((vmax - vmin) || 1) * (H - PAD_T - PAD_B);
 
     if (state.layers.anomalies) {
-      ctxSprt.fillStyle = 'rgba(214,39,40,0.09)';
+      ctxSprt.fillStyle = 'rgba(218,54,51,0.10)';
       for (let i = 0; i < DATA.k; ++i) {
         if (!DATA.anomalyMask[i]) continue;
         const x = X(DATA.times[i]);
@@ -336,9 +409,9 @@ const DATA = {
       }
     }
 
-    ctxSprt.strokeStyle = '#333'; ctxSprt.lineWidth = 1;
+    ctxSprt.strokeStyle = '#30363d'; ctxSprt.lineWidth = 1;
     ctxSprt.strokeRect(PAD_L, PAD_T, W - PAD_L - PAD_R, H - PAD_T - PAD_B);
-    ctxSprt.fillStyle = '#333'; ctxSprt.font = '10px monospace';
+    ctxSprt.fillStyle = '#8b949e'; ctxSprt.font = '10px monospace';
     ctxSprt.fillText(vmax.toFixed(1), 4, Y(vmax) + 3);
     ctxSprt.fillText(vmin.toFixed(1), 4, Y(vmin) + 3);
     ctxSprt.fillText(String(Math.round(tmin)), PAD_L - 6, H - 8);
@@ -346,9 +419,9 @@ const DATA = {
     ctxSprt.fillText(DATA.timeLabel, (W + PAD_L - PAD_R) / 2 - 18, H - 6);
 
     ctxSprt.setLineDash([5, 4]);
-    ctxSprt.strokeStyle = '#d62728';
+    ctxSprt.strokeStyle = '#da3633';
     ctxSprt.beginPath(); ctxSprt.moveTo(PAD_L, Y(ch.upper)); ctxSprt.lineTo(W - PAD_R, Y(ch.upper)); ctxSprt.stroke();
-    ctxSprt.strokeStyle = '#666';
+    ctxSprt.strokeStyle = '#238636';
     ctxSprt.beginPath(); ctxSprt.moveTo(PAD_L, Y(ch.lower)); ctxSprt.lineTo(W - PAD_R, Y(ch.lower)); ctxSprt.stroke();
     ctxSprt.setLineDash([]);
 
@@ -361,10 +434,10 @@ const DATA = {
       }
       ctxSprt.stroke();
     }
-    poly(ch.llrPos, '#1f77b4');
-    poly(ch.llrNeg, '#2ca02c');
+    poly(ch.llrPos, '#f0883e');
+    poly(ch.llrNeg, '#bc8cff');
 
-    ctxSprt.strokeStyle = '#d62728'; ctxSprt.lineWidth = 2.2;
+    ctxSprt.strokeStyle = '#da3633'; ctxSprt.lineWidth = 2.2;
     ch.faultIndices.forEach(i => {
       const x = X(DATA.times[i]), y = Y(Math.max(ch.llrPos[i], ch.llrNeg[i]));
       ctxSprt.beginPath();
@@ -374,7 +447,7 @@ const DATA = {
     });
 
     const cx = X(DATA.times[state.cursor]);
-    ctxSprt.strokeStyle = '#ff7f0e'; ctxSprt.lineWidth = 2;
+    ctxSprt.strokeStyle = '#f0883e'; ctxSprt.lineWidth = 2;
     ctxSprt.beginPath(); ctxSprt.moveTo(cx, PAD_T); ctxSprt.lineTo(cx, H - PAD_B); ctxSprt.stroke();
 
     sprtTitle.textContent = 'SPRT fault detection - channel: ' + DATA.channels[state.channel] +
