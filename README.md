@@ -2,7 +2,7 @@
 
 https://mgarcia-01.github.io/anomaly_detection_example_C
 
-## Derived from my Multivariate_state_estimation_py Project
+## Derived from my Multivariate_state_estimation_sprt Project
 
 # Overview
 This paper explores using the **Multivariate State Estimation Technique (MSET)** — traditionally used for fault *detection* — as a tool for **prognostics**, specifically predicting the **Remaining Useful Life (RUL)** of electronic products. The authors note that prior MSET research focused almost entirely on detecting faults, not on quantifying degradation trends toward failure.
